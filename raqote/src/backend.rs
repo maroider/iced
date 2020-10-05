@@ -95,9 +95,9 @@ impl Backend {
             } => {
                 let layout_settings = fontdue::layout::LayoutSettings {
                     x: (bounds.x * scale_factor),
-                    y: (bounds.y * scale_factor),
+                    y: -(bounds.y * scale_factor),
                     max_width: Some(bounds.width * scale_factor),
-                    max_height: Some(bounds.height * scale_factor),
+                    max_height: Some(-(bounds.height * scale_factor)),
                     horizontal_align: match horizontal_alignment {
                         HorizontalAlignment::Left => {
                             fontdue::layout::HorizontalAlign::Left
@@ -138,7 +138,7 @@ impl Backend {
                                 Ok(ok) => fonts.entry(name).or_insert(ok),
                                 Err(err) => {
                                     warn!(
-                                        r#"Using fallback font due error while loading "{}": "{}""#,
+                                        r#"Using fallback font due to error while loading "{}": "{}""#,
                                         name, err
                                     );
                                     &self.fallback_font
@@ -159,17 +159,12 @@ impl Backend {
                     &layout_settings,
                     &mut glyph_positions,
                 );
-                for (c, glyph_pos) in
-                    content.chars().zip(glyph_positions.drain(..))
-                {
-                    let (metrics, coverage) = self
-                        .glyph_cache
-                        .entry(GlyphRasterConfig {
-                            c,
-                            px: *size,
-                            font_index: 0,
-                        })
-                        .or_insert_with(|| font.rasterize(c, *size));
+
+                for glyph_pos in glyph_positions.drain(..) {
+                    let (metrics, coverage) =
+                        self.glyph_cache.entry(glyph_pos.key).or_insert_with(
+                            || font.rasterize(glyph_pos.key.c, *size),
+                        );
                     let mut image_data = Vec::with_capacity(coverage.len());
                     for cov in coverage.iter() {
                         // FIXME: Color space
@@ -183,7 +178,7 @@ impl Backend {
                     }
                     draw_target.draw_image_at(
                         glyph_pos.x,
-                        glyph_pos.y,
+                        -glyph_pos.y - glyph_pos.height as f32 - 100.0,
                         &raqote::Image {
                             width: metrics.width as i32,
                             height: metrics.height as i32,
@@ -282,7 +277,7 @@ impl backend::Text for Backend {
                         Ok(ok) => fonts.entry(name).or_insert(ok),
                         Err(err) => {
                             warn!(
-                                r#"Using fallback font due error while loading "{}": "{}""#,
+                                r#"Using fallback font due to error while loading "{}": "{}""#,
                                 name, err
                             );
                             &self.fallback_font
