@@ -68,6 +68,7 @@ members = [
     "examples/pick_list",
     "examples/pokedex",
     "examples/progress_bar",
+    "examples/raqote-winit-blit",
     "examples/solar_system",
     "examples/stopwatch",
     "examples/styling",

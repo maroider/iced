@@ -17,7 +17,8 @@ image = []
 [dependencies]
 bytemuck = "1.2"
 # euclid = "0.20"
-fontdue = "0.3.2"
+# fontdue = "0.3.2"
+fontdue = { git = "https://github.com/mooman219/fontdue" }
 # glam = "0.8"
 log = "0.4"
 

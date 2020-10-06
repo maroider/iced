@@ -1,4 +1,4 @@
-use crate::{Settings, Viewport};
+use crate::{Background, Settings, Viewport};
 use fontdue::layout::{GlyphPosition, GlyphRasterConfig};
 use fontdue::Metrics;
 use iced_graphics::backend;
@@ -62,6 +62,28 @@ impl Backend {
             primitive,
         );
 
+        for text in overlay_text.iter() {
+            self.draw_primitive(
+                draw_target,
+                viewport_size,
+                scale_factor,
+                &Primitive::Text {
+                    content: text.as_ref().to_string(),
+                    bounds: iced_native::Rectangle {
+                        x: 0.0,
+                        y: 0.0,
+                        width: viewport_size.width as f32,
+                        height: viewport_size.height as f32,
+                    },
+                    color: iced_native::Color::from_rgb(1.0, 1.0, 1.0),
+                    size: 14.0,
+                    font: iced_native::Font::Default,
+                    horizontal_alignment: HorizontalAlignment::Left,
+                    vertical_alignment: VerticalAlignment::Top,
+                },
+            );
+        }
+
         *mouse_interaction
     }
 
@@ -72,6 +94,11 @@ impl Backend {
         scale_factor: f32,
         primitive: &Primitive,
     ) {
+        use raqote::{
+            AntialiasMode, BlendMode, DrawOptions, IntPoint, IntRect, Path,
+            PathBuilder, PathOp, SolidSource, Source,
+        };
+
         match primitive {
             Primitive::None => {}
             Primitive::Group { primitives } => {
@@ -93,11 +120,12 @@ impl Backend {
                 horizontal_alignment,
                 vertical_alignment,
             } => {
+                dbg!((content, size));
                 let layout_settings = fontdue::layout::LayoutSettings {
                     x: (bounds.x * scale_factor),
-                    y: -(bounds.y * scale_factor),
-                    max_width: Some(bounds.width * scale_factor),
-                    max_height: Some(-(bounds.height * scale_factor)),
+                    y: (bounds.y * scale_factor),
+                    max_width: Some((bounds.x + bounds.width) * scale_factor),
+                    max_height: Some((bounds.y + bounds.height) * scale_factor),
                     horizontal_align: match horizontal_alignment {
                         HorizontalAlignment::Left => {
                             fontdue::layout::HorizontalAlign::Left
@@ -123,6 +151,8 @@ impl Backend {
                     wrap_style: fontdue::layout::WrapStyle::Word,
                     wrap_hard_breaks: true,
                     include_whitespace: false,
+                    coordinate_system:
+                        fontdue::layout::PositiveYDirection::Down,
                 };
                 let mut fonts = self.fonts.lock().unwrap();
                 let font = match font {
@@ -178,16 +208,16 @@ impl Backend {
                     }
                     draw_target.draw_image_at(
                         glyph_pos.x,
-                        -glyph_pos.y - glyph_pos.height as f32 - 100.0,
+                        glyph_pos.y - glyph_pos.height as f32,
                         &raqote::Image {
                             width: metrics.width as i32,
                             height: metrics.height as i32,
                             data: &image_data,
                         },
-                        &raqote::DrawOptions {
-                            blend_mode: raqote::BlendMode::SrcOver,
+                        &DrawOptions {
+                            blend_mode: BlendMode::SrcOver,
                             alpha: 1.0,
-                            antialias: raqote::AntialiasMode::None,
+                            antialias: AntialiasMode::Gray,
                         },
                     );
                 }
@@ -199,7 +229,71 @@ impl Backend {
                 border_width,
                 border_color,
             } => {
-                //
+                let border_radius = *border_radius as f32;
+                let border_width = *border_width as f32;
+                let rect_path = |border_radius, x, y, xmax, ymax| {
+                    let mut pb = PathBuilder::new();
+                    if border_radius == 0.0 {
+                        pb.move_to(x, y);
+                        pb.line_to(xmax, y);
+                        pb.line_to(xmax, ymax);
+                        pb.line_to(x, ymax);
+                    } else {
+                        pb.move_to(x, y + border_radius);
+                        pb.quad_to(x, y, x + border_radius, y);
+                        pb.line_to(xmax - border_radius, y);
+                        pb.quad_to(xmax, y, xmax, y + border_radius);
+                        pb.line_to(xmax, ymax - border_radius);
+                        pb.quad_to(xmax, ymax, xmax - border_radius, ymax);
+                        pb.line_to(x + border_radius, ymax);
+                        pb.quad_to(x, ymax, x, ymax - border_radius);
+                    }
+                    pb.close();
+                    pb.finish()
+                };
+                draw_target.fill(
+                    &rect_path(
+                        border_radius,
+                        bounds.x,
+                        bounds.y,
+                        bounds.x + bounds.width,
+                        bounds.y + bounds.height,
+                    ),
+                    &Source::Solid(SolidSource::from_unpremultiplied_argb(
+                        (border_color.a * 255.0) as u8,
+                        (border_color.r * 255.0) as u8,
+                        (border_color.g * 255.0) as u8,
+                        (border_color.b * 255.0) as u8,
+                    )),
+                    &DrawOptions::new(),
+                );
+                let path = rect_path(
+                    border_radius,
+                    bounds.x + border_width,
+                    bounds.y + border_width,
+                    bounds.x + bounds.width - border_width,
+                    bounds.y + bounds.height - border_width,
+                );
+                match background {
+                    Background::Color(color) => {
+                        draw_target.fill(
+                            &path,
+                            &Source::Solid(
+                                SolidSource::from_unpremultiplied_argb(
+                                    (color.a * 255.0) as u8,
+                                    (color.r * 255.0) as u8,
+                                    (color.g * 255.0) as u8,
+                                    (color.b * 255.0) as u8,
+                                ),
+                            ),
+                            &DrawOptions {
+                                blend_mode: BlendMode::SrcOver,
+                                alpha: 1.0,
+                                antialias: AntialiasMode::Gray,
+                            },
+                        );
+                    }
+                }
             }
             Primitive::Image { handle, bounds } => {
                 //
@@ -212,13 +306,47 @@ impl Backend {
                 offset,
                 content,
             } => {
-                //
+                draw_target.push_clip_rect(raqote::IntRect::new(
+                    raqote::IntPoint::new(bounds.x as i32, bounds.y as i32),
+                    raqote::IntPoint::new(
+                        (bounds.x + bounds.width) as i32,
+                        (bounds.y + bounds.height) as i32,
+                    ),
+                ));
+                let prev_transform = draw_target.get_transform().clone();
+                draw_target.set_transform(
+                    &raqote::Transform::create_translation(
+                        bounds.x + offset.x as f32,
+                        bounds.y + offset.y as f32,
+                    ),
+                );
+                self.draw_primitive(
+                    draw_target,
+                    viewport_size,
+                    scale_factor,
+                    &*content,
+                );
+                draw_target.set_transform(&prev_transform);
+                draw_target.pop_clip();
             }
             Primitive::Translate {
                 translation,
                 content,
             } => {
-                //
+                let prev_transform = draw_target.get_transform().clone();
+                draw_target.set_transform(
+                    &raqote::Transform::create_translation(
+                        translation.x,
+                        translation.y,
+                    ),
+                );
+                self.draw_primitive(
+                    draw_target,
+                    viewport_size,
+                    scale_factor,
+                    &*content,
+                );
+                draw_target.set_transform(&prev_transform);
             }
             Primitive::Mesh2D { buffers, size } => {
                 //
@@ -297,6 +425,7 @@ impl backend::Text for Backend {
             wrap_style: fontdue::layout::WrapStyle::Word,
             wrap_hard_breaks: true,
             include_whitespace: false,
+            coordinate_system: fontdue::layout::PositiveYDirection::Down,
         };
 
         let mut glyph_positions = self.glyph_positions.lock().unwrap();
