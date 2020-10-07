@@ -28,7 +28,9 @@ impl Backend {
     /// [`Backend`]: struct.Backend.html
     pub fn new(settings: Settings) -> Self {
         Self {
-            text_layout: Mutex::new(fontdue::layout::Layout::new()),
+            text_layout: Mutex::new(fontdue::layout::Layout::new(
+                fontdue::layout::CoordinateSystem::PositiveYDown,
+            )),
             glyph_positions: Mutex::new(Vec::new()),
             fonts: Mutex::new(HashMap::new()),
             fallback_font: fontdue::Font::from_bytes(
@@ -95,8 +97,8 @@ impl Backend {
         primitive: &Primitive,
     ) {
         use raqote::{
-            AntialiasMode, BlendMode, DrawOptions, IntPoint, IntRect, Path,
-            PathBuilder, PathOp, SolidSource, Source,
+            AntialiasMode, BlendMode, DrawOptions, PathBuilder, SolidSource,
+            Source,
         };
 
         match primitive {
@@ -120,12 +122,21 @@ impl Backend {
                 horizontal_alignment,
                 vertical_alignment,
             } => {
-                dbg!((content, size));
+                // draw_target.fill_rect(
+                //     bounds.x,
+                //     bounds.y,
+                //     bounds.width,
+                //     bounds.height,
+                //     &Source::Solid(SolidSource::from_unpremultiplied_argb(
+                //         255, 127, 127, 127,
+                //     )),
+                //     &Default::default(),
+                // );
                 let layout_settings = fontdue::layout::LayoutSettings {
                     x: (bounds.x * scale_factor),
                     y: (bounds.y * scale_factor),
-                    max_width: Some((bounds.x + bounds.width) * scale_factor),
-                    max_height: Some((bounds.y + bounds.height) * scale_factor),
+                    max_width: Some(bounds.width * scale_factor),
+                    max_height: Some(bounds.height * scale_factor),
                     horizontal_align: match horizontal_alignment {
                         HorizontalAlignment::Left => {
                             fontdue::layout::HorizontalAlign::Left
@@ -151,8 +162,6 @@ impl Backend {
                     wrap_style: fontdue::layout::WrapStyle::Word,
                     wrap_hard_breaks: true,
                     include_whitespace: false,
-                    coordinate_system:
-                        fontdue::layout::PositiveYDirection::Down,
                 };
                 let mut fonts = self.fonts.lock().unwrap();
                 let font = match font {
@@ -208,7 +217,7 @@ impl Backend {
                     }
                     draw_target.draw_image_at(
                         glyph_pos.x,
-                        glyph_pos.y - glyph_pos.height as f32,
+                        glyph_pos.y,
                         &raqote::Image {
                             width: metrics.width as i32,
                             height: metrics.height as i32,
@@ -425,7 +434,6 @@ impl backend::Text for Backend {
             wrap_style: fontdue::layout::WrapStyle::Word,
             wrap_hard_breaks: true,
             include_whitespace: false,
-            coordinate_system: fontdue::layout::PositiveYDirection::Down,
         };
 
         let mut glyph_positions = self.glyph_positions.lock().unwrap();
@@ -440,12 +448,14 @@ impl backend::Text for Backend {
             &mut glyph_positions,
         );
 
+        // FIXME: This doesn't seem right
         let width = glyph_positions
             .iter()
-            .fold(0.0f32, |acc, pos| acc.max(pos.x + pos.width as f32));
+            .fold(0.0f32, |acc, pos| acc.max(pos.x + pos.width as f32))
+            + 2.0;
         let height = glyph_positions
             .iter()
-            .fold(0.0f32, |acc, pos| acc.max(pos.y));
+            .fold(0.0f32, |acc, pos| acc.max(pos.y + pos.height as f32));
 
         (width, height)
     }
